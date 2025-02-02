@@ -1,41 +1,59 @@
+from flask import Flask, request, jsonify
 from transformers import pipeline
 
-# Load a local emotion classification model
-#emotion_classifier = pipeline("text-classification", model="bhadresh-savani/distilbert-base-uncased-emotion")
-emotion_classifier = pipeline("text-classification", model="SamLowe/roberta-base-go_emotions")
+app = Flask(__name__)
+
+try:
+    print("🚀 Loading the model...")
+    emotion_classifier = pipeline("zero-shot-classification", model="facebook/bart-large-mnli")
+    print("✅ Model loaded successfully!")
+except Exception as e:
+    print(f"❌ Model loading failed: {e}")
 
 
 def emotion_detector(text_to_analyse):
-    # Get the prediction from the model
-    results = emotion_classifier(text_to_analyse)
+    try:
+        labels = ["anger", "disgust", "fear", "joy", "sadness"]
+        results = emotion_classifier(text_to_analyse, candidate_labels=labels)
 
-    # Define the emotions we care about
-    relevant_emotions = ["anger", "disgust", "fear", "joy", "sadness"]
-    emotions = {emotion: 0.0 for emotion in relevant_emotions}  # Initialize with 0.0 scores
+        # Map emotions and scores correctly
+        emotions = {label: score for label, score in zip(results["labels"], results["scores"])}
 
-    # Convert model output into structured format
-    for res in results:
-        label = res["label"].lower()  # Ensure label is in lowercase
-        if label in emotions:
-            emotions[label] = res["score"]  # Store the confidence score
+        # Find the dominant emotion
+        dominant_emotion = max(emotions, key=emotions.get)
 
-    # Determine the dominant emotion (highest score)
-    dominant_emotion = max(emotions, key=emotions.get)
+        # Ensure a proper response
+        response_text = f"For the given statement, the system response is {emotions}. The dominant emotion is {dominant_emotion}."
 
-    # Add dominant emotion to the result
-    findings = {
-        "emotions": emotions,
-        "dominant_emotion": dominant_emotion
-    }
-
-    return findings
+        return {
+            "emotions": emotions,
+            "dominant_emotion": dominant_emotion,
+            "response": response_text
+        }
+    except Exception as e:
+        print(f"❌ ERROR processing text: {text_to_analyse}\n{e}")
+        return {"error": str(e)}
 
 
-# Example usage
-#print(emotion_detector("Make America great again"))
+@app.route("/")
+def index():
+    return "Emotion Detector API Running!"
 
-# Example Test Case
+
+@app.route("/emotionDetector", methods=["POST"])
+def detect_emotion():
+    text = request.json.get("text", "")
+
+    if not text:
+        return jsonify({"error": "No text provided"}), 400
+
+    try:
+        result = emotion_detector(text)
+        return jsonify(result)
+    except Exception as e:
+        print(f"❌ ERROR in API: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
 if __name__ == "__main__":
-    text = "I am so happy I am doing this."
-    result = emotion_detector(text)
-    print(result)  # Expected dominant emotion: "joy"
+    app.run(debug=True)
